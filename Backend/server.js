@@ -28,7 +28,15 @@ app.get('/{*splat}', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'Frontend', 'index.html'));
 });
 
-// Jalankan server
-app.listen(PORT, () => {
-    console.log(`Server berjalan di port ${PORT}`);
-});
+// Jalankan server SETELAH tabel database siap
+const db = require('./config/database');
+db.ready
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log(`Server berjalan di port ${PORT}`);
+        });
+    })
+    .catch(err => {
+        console.error('Server gagal dimulai karena database error:', err.message);
+        process.exit(1);
+    });

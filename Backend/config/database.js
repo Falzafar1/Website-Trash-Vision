@@ -162,33 +162,40 @@ const db = {
     }
 };
 
-// Inisialisasi tabel utama deteksi (satu row per sesi) jika belum ada
-db.run(`
-    CREATE TABLE IF NOT EXISTS tabel_deteksi (
-        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp             DATETIME DEFAULT (datetime('now','localtime')),
-        nama_gambar           TEXT,
-        gps                   TEXT,
-        latitude              REAL    DEFAULT 0,
-        longitude             REAL    DEFAULT 0,
-        location_name         TEXT    DEFAULT 'Memuat lokasi...',
-        plastic_bottle_count  INTEGER DEFAULT 0,
-        can_count             INTEGER DEFAULT 0,
-        leaf_pile_area_m2     REAL    DEFAULT 0,
-        mixed_waste_area_m2   REAL    DEFAULT 0,
-        jumlah_objek          INTEGER DEFAULT 0
-    )
-`);
-
-// Inisialisasi tabel frame per sesi (banyak foto untuk satu sesi) jika belum ada
-db.run(`
-    CREATE TABLE IF NOT EXISTS tabel_frame (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        deteksi_id   INTEGER NOT NULL,
-        nama_gambar  TEXT    NOT NULL,
-        timestamp    DATETIME DEFAULT (datetime('now','localtime')),
-        FOREIGN KEY (deteksi_id) REFERENCES tabel_deteksi(id)
-    )
-`);
+// Inisialisasi tabel — menunggu hasil sebelum server mulai menerima request
+const ready = (async () => {
+    try {
+        await client.execute(`
+            CREATE TABLE IF NOT EXISTS tabel_deteksi (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp             DATETIME DEFAULT (datetime('now','localtime')),
+                nama_gambar           TEXT,
+                gps                   TEXT,
+                latitude              REAL    DEFAULT 0,
+                longitude             REAL    DEFAULT 0,
+                location_name         TEXT    DEFAULT 'Memuat lokasi...',
+                plastic_bottle_count  INTEGER DEFAULT 0,
+                can_count             INTEGER DEFAULT 0,
+                leaf_pile_area_m2     REAL    DEFAULT 0,
+                mixed_waste_area_m2   REAL    DEFAULT 0,
+                jumlah_objek          INTEGER DEFAULT 0
+            )
+        `);
+        await client.execute(`
+            CREATE TABLE IF NOT EXISTS tabel_frame (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                deteksi_id   INTEGER NOT NULL,
+                nama_gambar  TEXT    NOT NULL,
+                timestamp    DATETIME DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (deteksi_id) REFERENCES tabel_deteksi(id)
+            )
+        `);
+        console.log('✅ Tabel berhasil diinisialisasi.');
+    } catch (err) {
+        console.error('❌ Gagal menginisialisasi tabel:', err.message);
+        throw err;
+    }
+})();
 
 module.exports = db;
+module.exports.ready = ready;
