@@ -237,6 +237,90 @@ const ambilFramesByDeteksi = (req, res) => {
 // ── GET /api/data (alias lama) ────────────────────────────────────────────────
 const ambilData = (req, res) => ambilSemuaDeteksi(req, res);
 
+// ── GET /api/riwayat ──────────────────────────────────────────────────────────
+// Query parameter opsional: date_from, date_to, time_from, time_to
+// Format: date_from=2026-01-01, time_from=08:00
+const ambilRiwayat = (req, res) => {
+    const { date_from, date_to, time_from, time_to } = req.query;
+
+    // Bangun kondisi WHERE secara dinamis
+    const conditions = [];
+    const params     = [];
+
+    if (date_from) {
+        const tf = time_from || '00:00';
+        conditions.push(`timestamp >= ?`);
+        params.push(`${date_from} ${tf}:00`);
+    }
+    if (date_to) {
+        const tt = time_to || '23:59';
+        conditions.push(`timestamp <= ?`);
+        params.push(`${date_to} ${tt}:59`);
+    }
+
+    const whereClause = conditions.length > 0
+        ? `WHERE ${conditions.join(' AND ')}`
+        : '';
+
+    db.all(
+        `SELECT * FROM tabel_deteksi ${whereClause} ORDER BY timestamp DESC`,
+        params,
+        (err, rows) => {
+            if (err) {
+                console.error('Error ambilRiwayat:', err.message);
+                return res.status(500).json({ pesan: 'Gagal mengambil riwayat' });
+            }
+            res.status(200).json(rows);
+        }
+    );
+};
+
+// ── DELETE /api/riwayat ───────────────────────────────────────────────────────
+// Hapus semua data dalam rentang tanggal+jam yang ditentukan
+const hapusRiwayat = (req, res) => {
+    const { date_from, date_to, time_from, time_to } = req.query;
+
+    if (!date_from || !date_to) {
+        return res.status(400).json({ pesan: 'Parameter date_from dan date_to wajib diisi' });
+    }
+
+    const tf = time_from || '00:00';
+    const tt = time_to   || '23:59';
+    const dtFrom = `${date_from} ${tf}:00`;
+    const dtTo   = `${date_to} ${tt}:59`;
+
+    // Hapus frame dulu (FK constraint), baru deteksi
+    db.run(
+        `DELETE FROM tabel_frame WHERE deteksi_id IN (
+            SELECT id FROM tabel_deteksi WHERE timestamp >= ? AND timestamp <= ?
+        )`,
+        [dtFrom, dtTo],
+        (errFrame) => {
+            if (errFrame) {
+                console.error('Error hapus frame:', errFrame.message);
+                return res.status(500).json({ pesan: 'Gagal menghapus frame' });
+            }
+
+            db.run(
+                `DELETE FROM tabel_deteksi WHERE timestamp >= ? AND timestamp <= ?`,
+                [dtFrom, dtTo],
+                function(errDet) {
+                    if (errDet) {
+                        console.error('Error hapus deteksi:', errDet.message);
+                        return res.status(500).json({ pesan: 'Gagal menghapus data deteksi' });
+                    }
+                    console.log(`Hapus riwayat: ${this.changes} baris dihapus (${dtFrom} s/d ${dtTo})`);
+                    res.status(200).json({
+                        status : 'Sukses',
+                        dihapus: this.changes,
+                        pesan  : `${this.changes} data berhasil dihapus`
+                    });
+                }
+            );
+        }
+    );
+};
+
 module.exports = {
     terimaDataRaspberry,
     terimaFrame,
@@ -244,5 +328,7 @@ module.exports = {
     ambilSemuaDeteksi,
     ambilSatuDeteksi,
     ambilFramesByDeteksi,
-    ambilData
+    ambilData,
+    ambilRiwayat,
+    hapusRiwayat
 };

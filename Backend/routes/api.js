@@ -43,4 +43,8 @@ router.get('/frames/image/:filename', (req, res) => {
 
 router.get('/data', dataController.ambilData);
 
+// Riwayat: filter & hapus berdasarkan rentang tanggal+jam
+router.get('/riwayat',    dataController.ambilRiwayat);
+router.delete('/riwayat', dataController.hapusRiwayat);
+
 module.exports = router;
