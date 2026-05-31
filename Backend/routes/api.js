@@ -7,7 +7,7 @@ const dataController = require('../controllers/dataController');
 
 const penyimpananKustom = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, 'uploads/');
+        cb(null, path.join(__dirname, '..', 'uploads'));
     },
     filename: function (req, file, cb) {
         const waktuUnik = Date.now();
