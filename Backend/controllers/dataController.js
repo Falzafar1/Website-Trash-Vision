@@ -75,11 +75,11 @@ const terimaDataRaspberry = (req, res) => {
                 db.run(
                     `UPDATE tabel_deteksi SET
                         nama_gambar          = ?,
-                        plastic_bottle_count = ?,
-                        can_count            = ?,
-                        leaf_pile_area_m2    = ?,
-                        mixed_waste_area_m2  = ?,
-                        jumlah_objek         = ?,
+                        plastic_bottle_count = plastic_bottle_count + ?,
+                        can_count            = can_count            + ?,
+                        leaf_pile_area_m2    = leaf_pile_area_m2    + ?,
+                        mixed_waste_area_m2  = mixed_waste_area_m2  + ?,
+                        jumlah_objek         = jumlah_objek         + ?,
                         timestamp            = datetime('now','localtime')
                      WHERE id = ?`,
                     [namaGambar, plastic_bottle_count, can_count,
@@ -226,7 +226,7 @@ const terimaFrame = (req, res) => {
 };
 
 // ── PUT /api/update-counting/:id ──────────────────────────────────────────────
-// Dipanggil di akhir sesi untuk update data counting final.
+// Dipanggil di akhir sesi untuk update data counting final (akumulasi).
 const updateCounting = (req, res) => {
     const { id } = req.params;
     const plastic_bottle_count = parseInt(req.body.plastic_bottle_count) || 0;
@@ -236,9 +236,9 @@ const updateCounting = (req, res) => {
 
     db.run(
         `UPDATE tabel_deteksi
-         SET plastic_bottle_count = ?,
-             can_count = ?,
-             jumlah_objek = ?
+         SET plastic_bottle_count = plastic_bottle_count + ?,
+             can_count            = can_count            + ?,
+             jumlah_objek         = jumlah_objek         + ?
          WHERE id = ?`,
         [plastic_bottle_count, can_count, jumlah_objek, id],
         function(err) {
@@ -246,10 +246,10 @@ const updateCounting = (req, res) => {
                 console.error("Error update counting:", err.message);
                 return res.status(500).json({ pesan: "Gagal update counting" });
             }
-            console.log(`\nCounting final diupdate (sesi ${id}): botol=${plastic_bottle_count} kaleng=${can_count}`);
+            console.log(`\nCounting final diakumulasi (sesi ${id}): +botol=${plastic_bottle_count} +kaleng=${can_count}`);
             res.status(200).json({
                 status: "Sukses",
-                pesan : "Counting berhasil diupdate"
+                pesan : "Counting berhasil diperbarui"
             });
         }
     );
