@@ -5,7 +5,6 @@ const API_BASE = (window.location.hostname === 'localhost' || window.location.ho
   ? 'http://localhost:3000'
   : window.location.origin;
 const FRAMES_PER_BATCH   = 12;
-const REFRESH_INTERVAL   = 30000; // ms — sama dengan map.js
 
 const params      = new URLSearchParams(window.location.search);
 const detectionId = params.get("id");
@@ -77,7 +76,7 @@ function renderWasteSummary(det) {
 let semuaFrames   = [];
 let frameRendered = 0;
 let isLoading     = false;
-let scrollObserver = null; // IntersectionObserver — bisa di-disconnect saat refresh
+let scrollObserver = null;
 
 function renderFrameBatch() {
   if (isLoading) return;
@@ -198,7 +197,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight' && lightboxFrameIndex < semuaFrames.length - 1) { lightboxFrameIndex++; updateLightbox(); }
 });
 
-// ── Main ──────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 async function initPage() {
   try {
     const [detection, frames] = await Promise.all([
@@ -207,6 +206,7 @@ async function initPage() {
     ]);
 
     document.title = `${detection.location_name || 'Detail'} — Trash Vision`;
+    semuaFrames = frames;
 
     renderLocationInfo(detection);
     renderWasteSummary(detection);
@@ -217,27 +217,13 @@ async function initPage() {
     const badge = document.getElementById('frame-count-badge');
     badge.textContent = `${frames.length} frame`;
 
-    // ── Cek apakah ada frame baru sejak render terakhir ──
-    const frameBaruAda = frames.length > semuaFrames.length;
-
-    if (frameBaruAda || semuaFrames.length === 0) {
-      // Reset state infinite scroll agar frame baru ikut dirender
-      semuaFrames   = frames;
-      frameRendered = 0;
-      isLoading     = false;
-
-      const container = document.getElementById('frames-container');
-      container.innerHTML = ''; // bersihkan card lama
-
-      if (frames.length === 0) {
-        container.innerHTML =
-          '<p class="loading-msg" style="grid-column:1/-1">Belum ada frame untuk lokasi ini.</p>';
-      } else {
-        renderFrameBatch();
-        setupInfiniteScroll();
-      }
+    if (frames.length === 0) {
+      document.getElementById('frames-container').innerHTML =
+        '<p class="loading-msg" style="grid-column:1/-1">Belum ada frame untuk lokasi ini.</p>';
+    } else {
+      renderFrameBatch();
+      setupInfiniteScroll();
     }
-    // Jika jumlah frame sama, tidak perlu re-render (hemat DOM)
 
   } catch (err) {
     console.error(err);
@@ -255,4 +241,3 @@ async function initPage() {
 }
 
 initPage();
-setInterval(initPage, REFRESH_INTERVAL);

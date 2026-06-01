@@ -29,7 +29,10 @@ function reverseGeocode(lat, lng, callback) {
 
 // ── POST /api/kirim-data ──────────────────────────────────────────────────────
 // Dipanggil SEKALI di awal sesi dari Raspi.
-// Membuat 1 row baru di tabel_deteksi, mengembalikan id sesi.
+// Jika koordinat GPS sudah ada (dalam radius ~55m), UPDATE row lama.
+// Jika belum ada, INSERT row baru.
+const LOKASI_THRESHOLD = 0.0005; // ~55 meter dalam derajat
+
 const terimaDataRaspberry = (req, res) => {
     try {
         const fileGambar           = req.file;
@@ -50,62 +53,134 @@ const terimaDataRaspberry = (req, res) => {
         const longitude = isNaN(bagian[1]) ? 0 : bagian[1];
         const namaGambar = fileGambar.filename;
 
-        const querySQL = `
-            INSERT INTO tabel_deteksi
-                (nama_gambar, gps, latitude, longitude, location_name,
-                 plastic_bottle_count, can_count, leaf_pile_area_m2,
-                 mixed_waste_area_m2, jumlah_objek)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
+        // ── Cek apakah lokasi yang sama sudah ada di database ──
+        // Hanya lakukan lookup jika GPS valid (bukan 0,0)
+        const cariLokasiSama = (latitude !== 0 || longitude !== 0)
+            ? `SELECT id, location_name FROM tabel_deteksi
+               WHERE latitude  != 0
+                 AND longitude != 0
+                 AND ABS(latitude  - ?) < ?
+                 AND ABS(longitude - ?) < ?
+               ORDER BY timestamp DESC LIMIT 1`
+            : null;
 
-        db.run(querySQL,
-            [namaGambar, koordinatGPS, latitude, longitude, 'Memuat lokasi...',
-             plastic_bottle_count, can_count, leaf_pile_area_m2,
-             mixed_waste_area_m2, jumlah_objek],
-            function(err) {
-                if (err) {
-                    console.error("Error Database:", err.message);
-                    return res.status(500).json({ pesan: "Gagal menyimpan data" });
-                }
+        const lanjutkan = (existingRow) => {
+            if (existingRow) {
+                // ════════════════════════════════════════════════
+                // KASUS: Lokasi sudah ada → UPDATE row yang lama
+                // ════════════════════════════════════════════════
+                const rowId = existingRow.id;
+                console.log(`\nLokasi sama ditemukan (ID: ${rowId}), memperbarui data...`);
 
-                const rowId = this.lastID;
-                console.log(`\nSesi baru dibuat dengan ID: ${rowId}`);
-
-                // Simpan juga foto pertama ke tabel_frame
                 db.run(
-                    `INSERT INTO tabel_frame (deteksi_id, nama_gambar) VALUES (?, ?)`,
-                    [rowId, namaGambar],
-                    (errFrame) => {
-                        if (!errFrame) {
-                            console.log(`  Frame pertama disimpan (sesi ${rowId})`);
+                    `UPDATE tabel_deteksi SET
+                        nama_gambar          = ?,
+                        plastic_bottle_count = ?,
+                        can_count            = ?,
+                        leaf_pile_area_m2    = ?,
+                        mixed_waste_area_m2  = ?,
+                        jumlah_objek         = ?,
+                        timestamp            = datetime('now','localtime')
+                     WHERE id = ?`,
+                    [namaGambar, plastic_bottle_count, can_count,
+                     leaf_pile_area_m2, mixed_waste_area_m2, jumlah_objek, rowId],
+                    function(errUpdate) {
+                        if (errUpdate) {
+                            console.error("Error update deteksi:", errUpdate.message);
+                            return res.status(500).json({ pesan: "Gagal memperbarui data lokasi" });
                         }
+
+                        // Tambahkan frame pertama sesi baru ke session yang sudah ada
+                        db.run(
+                            `INSERT INTO tabel_frame (deteksi_id, nama_gambar) VALUES (?, ?)`,
+                            [rowId, namaGambar],
+                            (errFrame) => {
+                                if (!errFrame) console.log(`  Frame pertama disimpan (sesi ${rowId})`);
+                            }
+                        );
+
+                        res.status(200).json({
+                            status    : "Sukses",
+                            pesan     : "Data lokasi yang sama diperbarui",
+                            id_record : rowId,
+                            session_id: rowId
+                        });
                     }
                 );
 
-                // Kirim respons dengan session_id agar Raspi bisa kirim frame berikutnya
-                res.status(200).json({
-                    status    : "Sukses",
-                    pesan     : "Sesi baru berhasil dibuat",
-                    id_record : rowId,
-                    session_id: rowId
-                });
+            } else {
+                // ════════════════════════════════════════════════
+                // KASUS: Lokasi baru → INSERT row baru
+                // ════════════════════════════════════════════════
+                const querySQL = `
+                    INSERT INTO tabel_deteksi
+                        (nama_gambar, gps, latitude, longitude, location_name,
+                         plastic_bottle_count, can_count, leaf_pile_area_m2,
+                         mixed_waste_area_m2, jumlah_objek)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
 
-                // Reverse geocoding di background
-                if (latitude !== 0 || longitude !== 0) {
-                    reverseGeocode(latitude, longitude, (errGeo, namaLokasi) => {
+                db.run(querySQL,
+                    [namaGambar, koordinatGPS, latitude, longitude, 'Memuat lokasi...',
+                     plastic_bottle_count, can_count, leaf_pile_area_m2,
+                     mixed_waste_area_m2, jumlah_objek],
+                    function(err) {
+                        if (err) {
+                            console.error("Error Database:", err.message);
+                            return res.status(500).json({ pesan: "Gagal menyimpan data" });
+                        }
+
+                        const rowId = this.lastID;
+                        console.log(`\nSesi baru dibuat dengan ID: ${rowId}`);
+
+                        // Simpan foto pertama ke tabel_frame
                         db.run(
-                            `UPDATE tabel_deteksi SET location_name = ? WHERE id = ?`,
-                            [namaLokasi, rowId],
-                            (errUpdate) => {
-                                if (!errUpdate) {
-                                    console.log(`  Geocode selesai → "${namaLokasi}" (ID: ${rowId})`);
-                                }
+                            `INSERT INTO tabel_frame (deteksi_id, nama_gambar) VALUES (?, ?)`,
+                            [rowId, namaGambar],
+                            (errFrame) => {
+                                if (!errFrame) console.log(`  Frame pertama disimpan (sesi ${rowId})`);
                             }
                         );
-                    });
-                }
+
+                        res.status(200).json({
+                            status    : "Sukses",
+                            pesan     : "Sesi baru berhasil dibuat",
+                            id_record : rowId,
+                            session_id: rowId
+                        });
+
+                        // Reverse geocoding di background
+                        if (latitude !== 0 || longitude !== 0) {
+                            reverseGeocode(latitude, longitude, (errGeo, namaLokasi) => {
+                                db.run(
+                                    `UPDATE tabel_deteksi SET location_name = ? WHERE id = ?`,
+                                    [namaLokasi, rowId],
+                                    (errUpdate) => {
+                                        if (!errUpdate) {
+                                            console.log(`  Geocode selesai → "${namaLokasi}" (ID: ${rowId})`);
+                                        }
+                                    }
+                                );
+                            });
+                        }
+                    }
+                );
             }
-        );
+        };
+
+        // Jalankan pencarian lokasi atau langsung insert jika GPS tidak valid
+        if (cariLokasiSama) {
+            db.get(cariLokasiSama,
+                [latitude, LOKASI_THRESHOLD, longitude, LOKASI_THRESHOLD],
+                (errCek, existingRow) => {
+                    if (errCek) console.error("Error cek lokasi:", errCek.message);
+                    lanjutkan(errCek ? null : existingRow);
+                }
+            );
+        } else {
+            lanjutkan(null); // GPS tidak valid → selalu insert baru
+        }
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ pesan: "Terjadi kesalahan pada server" });
